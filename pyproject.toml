@@ -1,0 +1,15 @@
+[project]
+name = "onlyfins"
+version = "0.1.0"
+description = "OnlyFins project"
+requires-python = ">=3.10"
+dependencies = [
+    "pip>=24.0",
+    "wheel>=0.42.0",
+    "esphome>=2024.1.0",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+

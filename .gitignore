@@ -1,0 +1,7 @@
+*.zip
+/.esphome/
+/secrets.yaml
+*.egg-info/
+__pycache__/
+.uv/
+.venv/

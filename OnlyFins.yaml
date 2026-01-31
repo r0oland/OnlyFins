@@ -1,0 +1,349 @@
+esphome:
+  name: onlyfins
+  friendly_name: "OnlyFins Radiator Booster"
+
+  # LOGIC: Start Red Pulse immediately on Boot
+  on_boot:
+    priority: 600 # Run early, after hardware init
+    then:
+      - light.turn_on:
+          id: glow_led
+          red: 0%
+          green: 0%
+          blue: 100%
+          brightness: 20%
+          effect: "Fast Pulse"
+
+esp32:
+  board: lolin_s3_mini
+  framework:
+    type: esp-idf
+
+
+# Force logging over the native USB-C port
+logger:
+  hardware_uart: USB_CDC
+
+# Enable Home Assistant API
+api:
+
+# Enable OTA updates
+ota:
+
+  - platform: esphome
+
+packages: # These allow merging whereas global includes do not
+  wifi: !include ./secrets/wifi.yaml 
+
+# 2. Use the variables in your config
+wifi:
+  ssid: ${WIFI_SSID}      # Note the ${} syntax instead of !secret
+  password: ${WIFI_PASS}
+  
+  # Now you can add your custom settings here
+  fast_connect: true
+  power_save_mode: NONE
+
+  # LOGIC: Switch to Dim Green when Connected
+  on_connect:
+    - light.turn_on:
+        id: glow_led
+        red: 0%
+        green: 50%
+        blue: 0%
+        effect: "Slow Pulse" # Stop pulsing
+  
+  # LOGIC: Switch back to Red Pulse if WiFi drops
+  on_disconnect:
+    - light.turn_on:
+        id: glow_led
+        red: 50%
+        green: 0%
+        blue: 0%
+        effect: "Fast Pulse"
+
+#########################################
+#       USER CONFIGURATION (SLIDERS)    #
+#########################################
+# NOTE: All sensor updates are driven by control_loop script
+#       Update frequency is controlled by cfg_update_interval
+#       Everything is synchronized to a single schedule
+
+number:
+  - platform: template
+    name: "Update Interval"
+    id: cfg_update_interval
+    optimistic: true
+    restore_value: true
+    min_value: 5
+    max_value: 60
+    step: 1
+    unit_of_measurement: "s"
+    initial_value: 10
+    mode: slider
+
+  - platform: template
+    name: "Fan Start Temp"
+    id: cfg_temp_min
+    optimistic: true
+    restore_value: true
+    min_value: 10
+    max_value: 50
+    step: 1
+    unit_of_measurement: "°C"
+    initial_value: 20
+    mode: slider
+
+  - platform: template
+    name: "Fan Max Temp"
+    id: cfg_temp_max
+    optimistic: true
+    restore_value: true
+    min_value: 20
+    max_value: 45
+    step: 1
+    unit_of_measurement: "°C"
+    initial_value: 30
+    mode: slider
+
+  - platform: template
+    name: "Fan Min Speed"
+    id: cfg_speed_min
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    initial_value: 10
+    mode: slider
+
+#########################################
+#          HARDWARE CONFIG              #
+#########################################
+
+# 1. THE FANS (PWM Output)
+output:
+  - platform: ledc
+    pin: GPIO4
+    id: fan_pwm_output
+    frequency: 25000 Hz # Standard PC Fan spec is 25kHz
+
+# 2. THE LEDS (Both using esp32_rmt_led_strip with different RMT channels)
+light:
+  # 2. External Glow LEDs (GPIO 2 - RMT Channel 1)
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO2
+    num_leds: 6
+    name: "OnlyFins Glow"
+    id: glow_led
+    chipset: ws2812
+    effects:
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+          max_brightness: 30%
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 3s
+          update_interval: 3s
+          max_brightness: 30%
+      - strobe: 
+          name: "Overheat Alert"
+          colors:
+            - state: true
+              red: 100%
+              green: 0%
+              blue: 0%
+              duration: 500ms
+            - state: true
+              red: 0%
+              green: 0%
+              blue: 100%
+              duration: 500ms
+
+# 3. TEMPERATURE SENSORS (NEW "ONE WIRE" SYNTAX)
+
+# Define TWO separate 1-Wire buses
+one_wire:
+  - platform: gpio
+    pin: 
+      number: GPIO16
+      mode: INPUT_PULLUP 
+    id: bus_inlet
+
+  - platform: gpio
+    pin: 
+      number: GPIO18
+      mode: INPUT_PULLUP
+    id: bus_outlet
+
+sensor:
+  # Inlet Sensor (Reads from Bus A)
+  - platform: dallas_temp
+    one_wire_id: bus_inlet
+    index: 0  # <--- MAGIC: Just grab the first sensor found
+    name: "Inlet Temp"
+    id: temp_in
+
+  # Outlet Sensor (Reads from Bus B)
+  - platform: dallas_temp
+    one_wire_id: bus_outlet
+    index: 0  # <--- MAGIC: Just grab the first sensor found
+    name: "Outlet Temp"
+    id: temp_out
+
+  # 4. FAN TACHOMETER
+  - platform: pulse_counter
+    pin: 
+      number: GPIO12
+      mode: INPUT_PULLUP
+    unit_of_measurement: 'RPM'
+    name: "Fan Speed"
+    id: fan_rpm
+    accuracy_decimals: 0  
+    filters:
+      - debounce: 1ms     # Filters out noise from cheap tach signals
+      - multiply: 0.5     # 2 pulses = 1 rev
+
+  # NEW: Temperature Delta Sensor (Inlet - Outlet)
+  - platform: template
+    name: "Temperature Delta"
+    id: temp_delta
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer-minus"
+    lambda: |-
+      if (id(temp_in).has_state() && id(temp_out).has_state()) {
+        return id(temp_in).state - id(temp_out).state;
+      }
+      return NAN;
+
+# 5. THE FAN ENTITY
+fan:
+  - platform: speed
+    output: fan_pwm_output
+    name: "Radiator Fans"
+    id: radiator_fan
+    on_turn_on:
+      - script.execute: update_leds
+    on_turn_off:
+      - light.turn_off: glow_led
+    restore_mode: RESTORE_DEFAULT_OFF
+
+#########################################
+#           AUTOMATION LOGIC            #
+#########################################
+
+script:
+  - id: update_leds
+    then:
+      - if:
+          condition:
+            fan.is_on: radiator_fan
+          then:
+            # Logic: If Fan ON, set color based on Inlet Temp (Visual Heat Map)
+            - lambda: |-
+                auto call = id(glow_led).turn_on();
+                float temp = id(temp_in).state;
+                
+                if (std::isnan(temp)) {
+                   call.set_rgb(1.0, 1.0, 1.0); // White if error
+                } else if (temp < 30.0) {
+                   call.set_rgb(0.0, 0.0, 1.0); // Blue (Cold)
+                   call.set_effect("Slow Pulse");
+                } else if (temp < 45.0) {
+                   call.set_rgb(1.0, 0.5, 0.0); // Orange (Warm)
+                   call.set_effect("None");
+                } else {
+                   call.set_rgb(1.0, 0.0, 0.0); // Red (Hot!)
+                   call.set_effect("None");
+                }
+                call.set_brightness(0.3); // Limit to 30% max brightness
+                call.perform();
+          else:
+             - light.turn_off: glow_led
+
+  - id: control_loop
+    then:
+      - lambda: |-
+          ESP_LOGD("OnlyFins","###############################################");
+
+          // MANUALLY UPDATE all sensors - control_loop is the single source of truth
+          id(temp_in).update();
+          id(temp_out).update();
+          id(fan_rpm).update();
+          id(temp_delta).update();  // Publish the calculated delta
+
+          float in = id(temp_in).state;
+          float out = id(temp_out).state;
+          float delta_temp = id(temp_delta).state;
+
+          ESP_LOGD("OnlyFins","Inlet Temp: %.1f °C | Outlet Temp: %.1f °C | Delta: %.1f °C", in, out, delta_temp);
+
+          // 1. Get User Configurations
+          float temp_min = id(cfg_temp_min).state;   // e.g., 30.0
+          float temp_max = id(cfg_temp_max).state;   // e.g., 50.0
+          float fan_min_pct = id(cfg_speed_min).state; // e.g., 20.0 (Percent)
+
+          if (std::isnan(in)) return;
+
+          // 2. Threshold Check (Turn OFF if below start temp)
+          // We use a small hysteresis (minus 1.0) to prevent rapid toggling
+          if (in < (temp_min - 1.0)) {
+            if (id(radiator_fan).state) {
+              ESP_LOGD("OnlyFins", "Temp %.1f is below Start Temp %.1f. Stopping.", in, temp_min);
+              id(radiator_fan).turn_off();
+            } else {
+              ESP_LOGD("OnlyFins", "Temp %.1f is below Start Temp %.1f. Fan already off.", in, temp_min);
+              // also print fan state
+              ESP_LOGD("OnlyFins", "Fan State: %u", id(radiator_fan).state);
+            }
+            return;
+          }
+
+          // 3. Math: Calculate Speed Logic
+          // We need to map the temperature range to the fan speed range.
+          
+          // Calculate "Heat Factor" (0.0 to 1.0)
+          // 0.0 = We are at Start Temp
+          // 1.0 = We are at Max Temp
+          float heat_range = temp_max - temp_min;
+          if (heat_range <= 0) heat_range = 1; // Prevent division by zero
+          float heat_factor = (in - temp_min) / heat_range;
+
+          // Clamp factor logic
+          if (heat_factor < 0.0) heat_factor = 0.0;
+          if (heat_factor > 1.0) heat_factor = 1.0;
+
+          // 4. Map Factor to Fan Speed
+          // If factor is 0 (Just started), speed should be Min Speed (e.g., 20%)
+          // If factor is 1 (Max temp), speed should be 100%
+          // Formula: MinSpeed + (Factor * (100 - MinSpeed))
+          float speed_range = 100.0 - fan_min_pct;
+          float target_speed_percent = fan_min_pct + (heat_factor * speed_range);
+
+          // 5. Convert Percent (0-100) to Decimal (0.0-1.0) for ESPHome
+          float final_speed_decimal = target_speed_percent;
+          
+          ESP_LOGD("OnlyFins", "Temp: %.1f | Factor: %.2f | Target: %.1f%%", in, heat_factor, target_speed_percent);
+
+          // Only update if change is significant (> 1%)
+          if (!id(radiator_fan).state || abs(id(radiator_fan).speed - final_speed_decimal) > 0.01) {
+             id(radiator_fan).turn_on().set_speed(final_speed_decimal).perform();
+          }
+
+interval:
+  - interval: 1s    # Check on schedule and look for cfg_update_interval
+    then:
+      - lambda: |-
+          static uint32_t last_run = 0;
+          uint32_t now = millis();
+          uint32_t interval_ms = (uint32_t)(id(cfg_update_interval).state * 1000);
+          
+          if (now - last_run >= interval_ms) {
+            last_run = now;
+            id(control_loop).execute();
+          }
