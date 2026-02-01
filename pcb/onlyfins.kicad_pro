@@ -613,6 +613,54 @@
     [
       "fd4635e4-7794-4579-a4c7-2fc47ad984c2",
       "Root"
+    ],
+    [
+      "69a3f1c8-c915-4d92-b647-ec214ef99006",
+      "level_shifter"
+    ],
+    [
+      "b73320e8-e403-4a83-807a-dd62151ec160",
+      "Fan 1"
+    ],
+    [
+      "88e144e3-60a3-443d-93c9-47f353a61d4a",
+      "level_shifter1"
+    ],
+    [
+      "a960bdef-0163-4073-bbde-64a9e95172f2",
+      "Fan 2"
+    ],
+    [
+      "69a3f1c8-c915-4d92-b647-ec214ef99006",
+      "level_shifter"
+    ],
+    [
+      "88e144e3-60a3-443d-93c9-47f353a61d4a",
+      "level_shifter1"
+    ],
+    [
+      "57a30e20-158b-4e86-950d-9867a7ee962f",
+      "Fan 3"
+    ],
+    [
+      "69a3f1c8-c915-4d92-b647-ec214ef99006",
+      "level_shifter"
+    ],
+    [
+      "88e144e3-60a3-443d-93c9-47f353a61d4a",
+      "level_shifter1"
+    ],
+    [
+      "12790e54-c7a6-4408-8135-6250643ff11e",
+      "Fan 4"
+    ],
+    [
+      "69a3f1c8-c915-4d92-b647-ec214ef99006",
+      "level_shifter"
+    ],
+    [
+      "88e144e3-60a3-443d-93c9-47f353a61d4a",
+      "level_shifter1"
     ]
   ],
   "text_variables": {}
