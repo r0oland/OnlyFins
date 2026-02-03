@@ -3553,7 +3553,7 @@
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
-		(dnp no)
+		(dnp yes)
 		(uuid "76238995-88cd-4ac3-9afa-96f6f45433e8")
 		(property "Reference" "RadiatorFan2"
 			(at 101.092 41.91 0)
